@@ -2,16 +2,39 @@
 #include <iostream>
 #include <string>
 #include <filesystem>
+#include <thread>
+#include <chrono>
 
 void MovePDFFile(const std::wstring& sourcePath, const std::wstring& destinationFolder) {
-    std::wstring fileName = std::filesystem::path(sourcePath).filename();
+    std::wstring fileName = sourcePath.substr(sourcePath.find_last_of(L"\\") + 1);
     std::wstring destinationPath = destinationFolder + L"\\" + fileName;
+    const int maxRetries = 5;
+    const int retryDelay = 2000; // milliseconds
 
-    if (MoveFileW(sourcePath.c_str(), destinationPath.c_str())) {
+    int attempt = 0;
+    BOOL moveResult;
+
+    do {
+        moveResult = MoveFileW(sourcePath.c_str(), destinationPath.c_str());
+        if (!moveResult) {
+            DWORD error = GetLastError();
+            if (error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION) {
+                std::wcerr << L"File is in use. Retrying in " << retryDelay << L" milliseconds..." << std::endl;
+                std::this_thread::sleep_for(std::chrono::milliseconds(retryDelay));
+                attempt++;
+            }
+            else {
+                std::wcerr << L"Failed to move " << fileName << L". Error: " << error << std::endl;
+                break;
+            }
+        }
+    } while (!moveResult && attempt < maxRetries);
+
+    if (moveResult) {
         std::wcout << L"Moved " << fileName << L" to " << destinationFolder << std::endl;
     }
     else {
-        std::wcerr << L"Failed to move " << fileName << L". Error: " << GetLastError() << std::endl;
+        std::wcerr << L"Failed to move " << fileName << L" after " << maxRetries << L" attempts." << std::endl;
     }
 }
 
